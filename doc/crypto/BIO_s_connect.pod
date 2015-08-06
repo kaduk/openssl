@@ -18,7 +18,7 @@ BIO_set_nbio, BIO_do_connect - connect BIO
  long BIO_set_conn_hostname(BIO *b, char *name);
  long BIO_set_conn_port(BIO *b, char *port);
  long BIO_set_conn_ip(BIO *b, char *ip);
- long BIO_set_conn_int_port(BIO *b, char *port);
+ long BIO_set_conn_int_port(BIO *b, int *port);
  char *BIO_get_conn_hostname(BIO *b);
  char *BIO_get_conn_port(BIO *b);
  char *BIO_get_conn_ip(BIO *b, dummy);
@@ -70,8 +70,7 @@ list is http, telnet, socks, https, ssl, ftp, and gopher.
 BIO_set_conn_ip() sets the IP address to B<ip> using binary form,
 that is four bytes specifying the IP address in big-endian form.
 
-BIO_set_conn_int_port() sets the port using B<port>. B<port> should
-be of type (int *).
+BIO_set_conn_int_port() sets the port using B<port>.
 
 BIO_get_conn_hostname() returns the hostname of the connect BIO or
 NULL if the BIO is initialized but no hostname is set.
