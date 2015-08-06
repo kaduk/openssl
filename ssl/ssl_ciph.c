@@ -1608,7 +1608,7 @@ char *SSL_CIPHER_description(const SSL_CIPHER *cipher, char *buf, int len)
     const char *ver, *exp_str;
     const char *kx, *au, *enc, *mac;
     unsigned long alg_mkey, alg_auth, alg_enc, alg_mac, alg_ssl;
-    static const char *format =
+    static const char * const format =
         "%-23s %s Kx=%-8s Au=%-4s Enc=%-9s Mac=%-4s%s\n";
 
     alg_mkey = cipher->algorithm_mkey;
