@@ -176,11 +176,6 @@ typedef unsigned int u_int;
 #undef BUFSIZZ
 #define BUFSIZZ 1024*8
 
-extern int verify_depth;
-extern int verify_error;
-extern int verify_return_error;
-extern int verify_quiet;
-
 static int c_nbio = 0;
 static int c_tlsextdebug = 0;
 static int c_status_req = 0;

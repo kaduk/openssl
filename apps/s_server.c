@@ -219,8 +219,6 @@ static int accept_socket = -1;
 #define TEST_CERT       "server.pem"
 #define TEST_CERT2      "server2.pem"
 
-extern int verify_depth, verify_return_error, verify_quiet;
-
 static int s_server_verify = SSL_VERIFY_NONE;
 static int s_server_session_id_context = 1; /* anything will do */
 static const char *s_cert_file = TEST_CERT, *s_key_file =

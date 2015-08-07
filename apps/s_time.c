@@ -101,9 +101,6 @@
 #define SECONDS 30
 #define SECONDSSTR "30"
 
-extern int verify_depth;
-extern int verify_error;
-
 static SSL *doConnection(SSL *scon, const char *host, SSL_CTX *ctx);
 
 typedef enum OPTION_choice {
