@@ -383,8 +383,8 @@ int BN_sqr(BIGNUM *r, const BIGNUM *a, BN_CTX *ctx);
  */
 void BN_set_negative(BIGNUM *b, int n);
 /** BN_is_negative returns 1 if the BIGNUM is negative
- * \param  a  pointer to the BIGNUM object
- * \return 1 if a < 0 and 0 otherwise
+ * \param  b  pointer to the BIGNUM object
+ * \return 1 if b < 0 and 0 otherwise
  */
 int BN_is_negative(const BIGNUM *b);
 
