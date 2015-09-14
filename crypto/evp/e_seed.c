@@ -79,4 +79,10 @@ static int seed_init_key(EVP_CIPHER_CTX *ctx, const unsigned char *key,
     return 1;
 }
 
+#else                          /* ! OPENSSL_NO_SEED */
+
+# if PEDANTIC
+static void *dummy = &dummy;
+# endif
+
 #endif
