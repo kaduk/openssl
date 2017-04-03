@@ -72,7 +72,7 @@ my %dsa_expected = (
     "dsa-shortandlongline.pem" => 0,
     "dsa-shortline.pem" => 0,
     "dsa-threecolumn.pem" => 0,
-    "dsa-trailingwhitespace.pem" => 1,
+    "dsa-trailingwhitespace.pem" => 0,
     "dsa.pem" => 1
 );
 
