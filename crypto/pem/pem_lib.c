@@ -248,7 +248,7 @@ static void *pem_flag_malloc(int num, unsigned int flags)
     return OPENSSL_malloc(num);
 }
 
-static int PEM_bytes_read_bio_flags(unsigned char **pdata, long *plen,
+static int pem_bytes_read_bio_flags(unsigned char **pdata, long *plen,
                                     char **pnm, const char *name, BIO *bp,
                                     pem_password_cb *cb, void *u,
                                     unsigned int flags)
@@ -294,14 +294,14 @@ static int PEM_bytes_read_bio_flags(unsigned char **pdata, long *plen,
 int PEM_bytes_read_bio(unsigned char **pdata, long *plen, char **pnm,
                        const char *name, BIO *bp, pem_password_cb *cb,
                        void *u) {
-    return PEM_bytes_read_bio_flags(pdata, plen, pnm, name, bp, cb, u,
+    return pem_bytes_read_bio_flags(pdata, plen, pnm, name, bp, cb, u,
                                     PEM_FLAG_EAY_COMPATIBLE);
 }
 
 int PEM_bytes_read_bio_secmem(unsigned char **pdata, long *plen, char **pnm,
                               const char *name, BIO *bp, pem_password_cb *cb,
                               void *u) {
-    return PEM_bytes_read_bio_flags(pdata, plen, pnm, name, bp, cb, u,
+    return pem_bytes_read_bio_flags(pdata, plen, pnm, name, bp, cb, u,
                                     PEM_FLAG_SECURE);
 }
 
@@ -718,17 +718,14 @@ static int sanitize_line(char *linebuf, int len, unsigned int flags)
         /* Strip trailing whitespace */
         while ((len >= 0) && (linebuf[len] <= ' '))
             len--;
-        linebuf[++len] = '\n';
-        linebuf[++len] = '\0';
+        /* Go back to whitespace before applying uniform line ending. */
+        len++;
     } else if (flags & PEM_FLAG_ONLY_B64) {
         for (i = 0; i < len; ++i) {
             if (!isb64(linebuf[i]) || linebuf[i] == '\n')
                 break;
         }
-        /* The caller allocated LINESIZE+1, so this is safe. */
-        linebuf[i] = '\n';
-        linebuf[i + 1] = '\0';
-        len = i + 1;
+        len = i;
     } else {
         /* EVP_DecodeBlock strips leading and trailing whitespace, so just strip
          * control characters in-place and let everything through. */
@@ -738,11 +735,11 @@ static int sanitize_line(char *linebuf, int len, unsigned int flags)
             if (iscntrl(linebuf[i]))
                 linebuf[i] = ' ';
         }
-        /* The caller allocated LINESIZE+1, so this is safe. */
-        linebuf[i] = '\n';
-        linebuf[i + 1] = '\0';
-        len = i + 1;
+        len = i;
     }
+    /* The caller allocated LINESIZE+1, so this is safe. */
+    linebuf[len++] = '\n';
+    linebuf[len] = '\0';
     return len;
 }
 
@@ -760,8 +757,10 @@ static int get_name(BIO *bp, char **name, unsigned int flags)
     int ret = 0;
     size_t len;
 
-    /* Need to hold trailing NUL (accounted for by BIO_gets() and the newline
-     * that will be added by sanitize_line() (the extra '1'). */
+    /*
+     * Need to hold trailing NUL (accounted for by BIO_gets() and the newline
+     * that will be added by sanitize_line() (the extra '1').
+     */
     linebuf = pem_flag_malloc(LINESIZE + 1, flags);
     if (linebuf == NULL) {
         PEMerr(PEM_F_GET_NAME, ERR_R_MALLOC_FAILURE);
@@ -864,8 +863,10 @@ static int get_header_and_data(BIO *bp, BIO **header, BIO **data, char *name,
             PEMerr(PEM_F_GET_HEADER_AND_DATA, PEM_R_BAD_END_LINE);
             goto err;
         }
-        /* Else, a line of text -- could be header or data; we don't
-         * know yet.  Just pass it through. */
+        /*
+         * Else, a line of text -- could be header or data; we don't
+         * know yet.  Just pass it through.
+         */
         BIO_puts(tmp, linebuf);
         /*
          * Only encrypted files need the line length check applied.
