@@ -707,6 +707,8 @@ static int isb64(char c)
         return 1;
     if (c == '+' || c == '/')
         return 1;
+    if (c == '=')
+        return 1;
     return 0;
 }
 
@@ -776,7 +778,7 @@ static int get_name(BIO *bp, char **name, unsigned int flags)
         }
 
         /* Strip trailing garbage and standardize ending. */
-        len = sanitize_line(linebuf, len, flags);
+        len = sanitize_line(linebuf, len, flags & ~PEM_FLAG_ONLY_B64);
 
         /* Allow leading empty or non-matching lines. */
     } while (strncmp(linebuf, beginstr, BEGINLEN) != 0 || len < TAILLEN ||
@@ -830,7 +832,10 @@ static int get_header_and_data(BIO *bp, BIO **header, BIO **data, char *name,
             PEMerr(PEM_F_GET_HEADER_AND_DATA, PEM_R_SHORT_HEADER);
             goto err;
         }
-        len = sanitize_line(linebuf, len, flags);
+        if (!strncmp(linebuf, endstr, ENDLEN))
+            len = sanitize_line(linebuf, len, flags & ~PEM_FLAG_ONLY_B64);
+        else
+            len = sanitize_line(linebuf, len, flags);
 
         /* Check for end of header. */
         if (linebuf[0] == '\n') {
