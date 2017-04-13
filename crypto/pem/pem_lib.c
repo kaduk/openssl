@@ -814,7 +814,10 @@ static int get_header_and_data(BIO *bp, BIO **header, BIO **data, char *name,
 {
     BIO *tmp = *header;
     char *linebuf, *p;
-    int len, line, ret = 0, found_header = 0, end = 0;
+    int len, line, ret = 0, end = 0;
+    /* 0 if not seen (yet), 1 if reading header, 2 if finished header */
+    int got_header = 0;
+    unsigned int flags_mask;
     size_t namelen;
 
     /* Need to hold trailing NUL (accounted for by BIO_gets() and the newline
@@ -826,25 +829,29 @@ static int get_header_and_data(BIO *bp, BIO **header, BIO **data, char *name,
     }
 
     for (line = 0;;line++) {
+        flags_mask = ~0u;
         len = BIO_gets(bp, linebuf, LINESIZE);
 
         if (len <= 0) {
             PEMerr(PEM_F_GET_HEADER_AND_DATA, PEM_R_SHORT_HEADER);
             goto err;
         }
-        if (!strncmp(linebuf, endstr, ENDLEN))
-            len = sanitize_line(linebuf, len, flags & ~PEM_FLAG_ONLY_B64);
-        else
-            len = sanitize_line(linebuf, len, flags);
+        if (got_header == 0) {
+            if (memchr(linebuf, ':', len) != NULL)
+                got_header = 1;
+        }
+        if (!strncmp(linebuf, endstr, ENDLEN) || got_header == 1)
+            flags_mask &= ~PEM_FLAG_ONLY_B64;
+        len = sanitize_line(linebuf, len, flags & flags_mask);
 
         /* Check for end of header. */
         if (linebuf[0] == '\n') {
-            if (found_header) {
+            if (got_header == 2) {
                 /* Another blank line is an error. */
                 PEMerr(PEM_F_GET_HEADER_AND_DATA, PEM_R_BAD_END_LINE);
                 goto err;
             }
-            found_header = 1;
+            got_header = 2;
             tmp = *data;
             continue;
         }
@@ -858,7 +865,7 @@ static int get_header_and_data(BIO *bp, BIO **header, BIO **data, char *name,
                 PEMerr(PEM_F_GET_HEADER_AND_DATA, PEM_R_BAD_END_LINE);
                 goto err;
             }
-            if (!found_header) {
+            if (got_header == 0) {
                 *header = *data;
                 *data = tmp;
             }
@@ -876,7 +883,7 @@ static int get_header_and_data(BIO *bp, BIO **header, BIO **data, char *name,
         /*
          * Only encrypted files need the line length check applied.
          */
-        if (found_header) {
+        if (got_header == 2) {
             /* 65 includes the trailing newline */
             if (len > 65)
                 goto err;
