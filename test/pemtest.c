@@ -21,21 +21,21 @@ static const char pemtype[] = "PEMTESTDATA";
 static int test_b64(void)
 {
     BIO *b = BIO_new(BIO_s_mem());
-    char *name, *header;
-    unsigned char *data;
+    char *name = NULL, *header = NULL;
+    unsigned char *data = NULL;
     long len;
     int ret = 0;
 
     if (!TEST_ptr(b)
-        || !BIO_printf(b, "-----BEGIN %s-----\n", pemtype)
-        || !BIO_printf(b, "%s\n", encoded)
-        || !BIO_printf(b, "-----END %s-----\n", pemtype)
-        || !PEM_read_bio_flags(b, &name, &header, &data, &len,
-                               PEM_FLAG_ONLY_B64))
+        || !TEST_true(BIO_printf(b, "-----BEGIN %s-----\n", pemtype))
+        || !TEST_true(BIO_printf(b, "%s\n", encoded))
+        || !TEST_true(BIO_printf(b, "-----END %s-----\n", pemtype))
+        || !TEST_true(PEM_read_bio_flags(b, &name, &header, &data, &len,
+                               PEM_FLAG_ONLY_B64)))
         goto err;
-    if (memcmp(pemtype, name, sizeof(pemtype) - 1) != 0
-        || len != sizeof(raw) - 1
-        || memcmp(data, raw, sizeof(raw) - 1) != 0)
+    if (!TEST_int_eq(memcmp(pemtype, name, sizeof(pemtype) - 1), 0)
+        || !TEST_int_eq(len,sizeof(raw) - 1)
+        || !TEST_int_eq(memcmp(data, raw, sizeof(raw) - 1), 0))
         goto err;
     ret = 1;
  err:
@@ -49,17 +49,17 @@ static int test_b64(void)
 static int test_invalid(void)
 {
     BIO *b = BIO_new(BIO_s_mem());
-    char *name, *header;
-    unsigned char *data;
+    char *name = NULL, *header = NULL;
+    unsigned char *data = NULL;
     long len;
 
     if (!TEST_ptr(b)
-        || !BIO_printf(b, "-----BEGIN %s-----\n", pemtype)
-        || !BIO_printf(b, "%c%s\n", '\t', encoded)
-        || !BIO_printf(b, "-----END %s-----\n", pemtype)
+        || !TEST_true(BIO_printf(b, "-----BEGIN %s-----\n", pemtype))
+        || !TEST_true(BIO_printf(b, "%c%s\n", '\t', encoded))
+        || !TEST_true(BIO_printf(b, "-----END %s-----\n", pemtype))
         /* Expected to fail due to non-base64 character */
-        || PEM_read_bio_flags(b, &name, &header, &data, &len,
-                              PEM_FLAG_ONLY_B64)) {
+        || TEST_true(PEM_read_bio_flags(b, &name, &header, &data, &len,
+                                        PEM_FLAG_ONLY_B64))) {
         BIO_free(b);
         return 0;
     }
