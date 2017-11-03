@@ -303,6 +303,7 @@ int ERR_load_SSL_strings(void);
 # define SSL_F_TLS_CONSTRUCT_STOC_SESSION_TICKET          460
 # define SSL_F_TLS_CONSTRUCT_STOC_STATUS_REQUEST          461
 # define SSL_F_TLS_CONSTRUCT_STOC_SUPPORTED_GROUPS        544
+# define SSL_F_TLS_CONSTRUCT_STOC_SUPPORTED_VERSIONS      548
 # define SSL_F_TLS_CONSTRUCT_STOC_USE_SRTP                462
 # define SSL_F_TLS_EARLY_POST_PROCESS_CLIENT_HELLO        521
 # define SSL_F_TLS_GET_MESSAGE_BODY                       351
@@ -318,6 +319,7 @@ int ERR_load_SSL_strings(void);
 # define SSL_F_TLS_PARSE_STOC_KEY_SHARE                   445
 # define SSL_F_TLS_PARSE_STOC_PSK                         502
 # define SSL_F_TLS_PARSE_STOC_RENEGOTIATE                 448
+# define SSL_F_TLS_PARSE_STOC_SUPPORTED_VERSIONS          549
 # define SSL_F_TLS_PARSE_STOC_USE_SRTP                    446
 # define SSL_F_TLS_POST_PROCESS_CLIENT_HELLO              378
 # define SSL_F_TLS_POST_PROCESS_CLIENT_KEY_EXCHANGE       384

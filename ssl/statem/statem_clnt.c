@@ -1285,14 +1285,65 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
         goto f_err;
     }
 
-    /*
-     * We do this immediately so we know what format the ServerHello is in.
-     * Must be done after reading the random data so we can check for the
-     * TLSv1.3 downgrade sentinels
-     */
-    protverr = ssl_choose_client_version(s, sversion, 1, &al);
+    /* Get the session-id. */
+    if (!PACKET_get_length_prefixed_1(pkt, &session_id)) {
+        al = SSL_AD_DECODE_ERROR;
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
+        goto f_err;
+    }
+    session_id_len = PACKET_remaining(&session_id);
+    if (session_id_len > sizeof s->session->session_id
+        || session_id_len > SSL3_SESSION_ID_SIZE) {
+        al = SSL_AD_ILLEGAL_PARAMETER;
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO,
+               SSL_R_SSL3_SESSION_ID_TOO_LONG);
+        goto f_err;
+    }
+
+    if (!PACKET_get_bytes(pkt, &cipherchars, TLS_CIPHER_LEN)) {
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
+        al = SSL_AD_DECODE_ERROR;
+        goto f_err;
+    }
+
+    if (!PACKET_get_1(pkt, &compression)) {
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
+        al = SSL_AD_DECODE_ERROR;
+        goto f_err;
+    }
+
+    /* TLS extensions */
+    if (PACKET_remaining(pkt) == 0) {
+        PACKET_null_init(&extpkt);
+    } else if (!PACKET_as_length_prefixed_2(pkt, &extpkt)
+               || PACKET_remaining(pkt) != 0) {
+        al = SSL_AD_DECODE_ERROR;
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_BAD_LENGTH);
+        goto f_err;
+    }
+
+    if (!tls_collect_extensions(s, &extpkt,
+                                SSL_EXT_TLS1_2_SERVER_HELLO
+                                | SSL_EXT_TLS1_3_SERVER_HELLO,
+                                &extensions,
+                                &al, NULL, 1))
+        goto f_err;
+
+    protverr = ssl_choose_client_version(s, sversion, extensions, &al);
     if (protverr != 0) {
         SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, protverr);
+        goto f_err;
+    }
+
+    /*
+     * Now we have chosen the version we need to check again that the extensions
+     * are appropriate for this version.
+     */
+    context = SSL_IS_TLS13(s) ? SSL_EXT_TLS1_3_SERVER_HELLO
+                              : SSL_EXT_TLS1_2_SERVER_HELLO;
+    if (!tls_validate_all_contexts(s, context, extensions)) {
+        al = SSL_AD_ILLEGAL_PARAMETER;
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_BAD_EXTENSION);
         goto f_err;
     }
 
@@ -1306,56 +1357,12 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
         goto f_err;
     }
 
-    /* Get the session-id. */
-    if (!SSL_IS_TLS13(s)) {
-        if (!PACKET_get_length_prefixed_1(pkt, &session_id)) {
-            al = SSL_AD_DECODE_ERROR;
-            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
-            goto f_err;
-        }
-        session_id_len = PACKET_remaining(&session_id);
-        if (session_id_len > sizeof s->session->session_id
-            || session_id_len > SSL3_SESSION_ID_SIZE) {
-            al = SSL_AD_ILLEGAL_PARAMETER;
-            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO,
-                   SSL_R_SSL3_SESSION_ID_TOO_LONG);
-            goto f_err;
-        }
-    } else {
-        PACKET_null_init(&session_id);
-        session_id_len = 0;
-    }
-
-    if (!PACKET_get_bytes(pkt, &cipherchars, TLS_CIPHER_LEN)) {
-        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
-        al = SSL_AD_DECODE_ERROR;
+    if (SSL_IS_TLS13(s) && compression != 0) {
+        al = SSL_AD_ILLEGAL_PARAMETER;
+        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO,
+               SSL_R_INVALID_COMPRESSION_ALGORITHM);
         goto f_err;
     }
-
-    if (!SSL_IS_TLS13(s)) {
-        if (!PACKET_get_1(pkt, &compression)) {
-            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
-            al = SSL_AD_DECODE_ERROR;
-            goto f_err;
-        }
-    } else {
-        compression = 0;
-    }
-
-    /* TLS extensions */
-    if (PACKET_remaining(pkt) == 0) {
-        PACKET_null_init(&extpkt);
-    } else if (!PACKET_as_length_prefixed_2(pkt, &extpkt)
-               || PACKET_remaining(pkt) != 0) {
-        al = SSL_AD_DECODE_ERROR;
-        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_BAD_LENGTH);
-        goto f_err;
-    }
-
-    context = SSL_IS_TLS13(s) ? SSL_EXT_TLS1_3_SERVER_HELLO
-                              : SSL_EXT_TLS1_2_SERVER_HELLO;
-    if (!tls_collect_extensions(s, &extpkt, context, &extensions, &al, NULL, 1))
-        goto f_err;
 
     s->hit = 0;
 

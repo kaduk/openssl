@@ -1744,24 +1744,36 @@ int ssl_choose_server_version(SSL *s, CLIENTHELLO_MSG *hello, DOWNGRADE *dgrd)
  *
  * Returns 0 on success or an SSL error reason number on failure.
  */
-int ssl_choose_client_version(SSL *s, int version, int checkdgrd, int *al)
+int ssl_choose_client_version(SSL *s, int version, RAW_EXTENSION *extensions,
+                              int *al)
 {
     const version_info *vent;
     const version_info *table;
     int highver = 0;
+    int origv;
 
-    /* TODO(TLS1.3): Remove this before release */
-    if (version == TLS1_3_VERSION_DRAFT)
-        version = TLS1_3_VERSION;
+    origv = s->version;
+    s->version = version;
 
-    if (s->hello_retry_request && version != TLS1_3_VERSION) {
+    /* This will overwrite s->version if the extension is present */
+    if (!tls_parse_extension(s, TLSEXT_IDX_supported_versions,
+                             SSL_EXT_TLS1_2_SERVER_HELLO
+                             | SSL_EXT_TLS1_3_SERVER_HELLO, extensions,
+                             NULL, 0, al)) {
+        s->version = origv;
+        return ERR_R_INTERNAL_ERROR;
+    }
+
+    if (s->hello_retry_request && s->version != TLS1_3_VERSION) {
+        s->version = origv;
         *al = SSL_AD_PROTOCOL_VERSION;
         return SSL_R_WRONG_SSL_VERSION;
     }
 
     switch (s->method->version) {
     default:
-        if (version != s->version) {
+        if (s->version != s->method->version) {
+            s->version = origv;
             *al = SSL_AD_PROTOCOL_VERSION;
             return SSL_R_WRONG_SSL_VERSION;
         }
@@ -1788,13 +1800,14 @@ int ssl_choose_client_version(SSL *s, int version, int checkdgrd, int *al)
         if (vent->cmeth == NULL)
             continue;
 
-        if (highver != 0 && version != vent->version)
+        if (highver != 0 && s->version != vent->version)
             continue;
 
         method = vent->cmeth();
         err = ssl_method_error(s, method);
         if (err != 0) {
-            if (version == vent->version) {
+            if (s->version == vent->version) {
+                s->version = origv;
                 *al = SSL_AD_PROTOCOL_VERSION;
                 return err;
             }
@@ -1804,39 +1817,39 @@ int ssl_choose_client_version(SSL *s, int version, int checkdgrd, int *al)
         if (highver == 0)
             highver = vent->version;
 
-        if (version != vent->version)
+        if (s->version != vent->version)
             continue;
 
 #ifndef OPENSSL_NO_TLS13DOWNGRADE
         /* Check for downgrades */
-        if (checkdgrd) {
-            if (version == TLS1_2_VERSION && highver > version) {
-                if (memcmp(tls12downgrade,
-                           s->s3->server_random + SSL3_RANDOM_SIZE
-                                                - sizeof(tls12downgrade),
-                           sizeof(tls12downgrade)) == 0) {
-                    *al = SSL_AD_ILLEGAL_PARAMETER;
-                    return SSL_R_INAPPROPRIATE_FALLBACK;
-                }
-            } else if (!SSL_IS_DTLS(s)
-                       && version < TLS1_2_VERSION
-                       && highver > version) {
-                if (memcmp(tls11downgrade,
-                           s->s3->server_random + SSL3_RANDOM_SIZE
-                                                - sizeof(tls11downgrade),
-                           sizeof(tls11downgrade)) == 0) {
-                    *al = SSL_AD_ILLEGAL_PARAMETER;
-                    return SSL_R_INAPPROPRIATE_FALLBACK;
-                }
+        if (s->version == TLS1_2_VERSION && highver > s->version) {
+            if (memcmp(tls12downgrade,
+                       s->s3->server_random + SSL3_RANDOM_SIZE
+                                            - sizeof(tls12downgrade),
+                       sizeof(tls12downgrade)) == 0) {
+                s->version = origv;
+                *al = SSL_AD_ILLEGAL_PARAMETER;
+                return SSL_R_INAPPROPRIATE_FALLBACK;
+            }
+        } else if (!SSL_IS_DTLS(s)
+                   && s->version < TLS1_2_VERSION
+                   && highver > s->version) {
+            if (memcmp(tls11downgrade,
+                       s->s3->server_random + SSL3_RANDOM_SIZE
+                                            - sizeof(tls11downgrade),
+                       sizeof(tls11downgrade)) == 0) {
+                s->version = origv;
+                *al = SSL_AD_ILLEGAL_PARAMETER;
+                return SSL_R_INAPPROPRIATE_FALLBACK;
             }
         }
 #endif
 
         s->method = method;
-        s->version = version;
         return 0;
     }
 
+    s->version = origv;
     *al = SSL_AD_PROTOCOL_VERSION;
     return SSL_R_UNSUPPORTED_PROTOCOL;
 }
