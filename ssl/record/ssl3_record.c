@@ -332,8 +332,11 @@ int ssl3_get_record(SSL *s)
                     }
                 }
 
-                if (SSL_IS_TLS13(s) && s->enc_read_ctx != NULL
-                        && thisrr->type != SSL3_RT_APPLICATION_DATA) {
+                if (SSL_IS_TLS13(s)
+                        && s->enc_read_ctx != NULL
+                        && thisrr->type != SSL3_RT_APPLICATION_DATA
+                        && (thisrr->type != SSL3_RT_CHANGE_CIPHER_SPEC
+                            || !SSL_IS_FIRST_HANDSHAKE(s))) {
                     SSLerr(SSL_F_SSL3_GET_RECORD, SSL_R_BAD_RECORD_TYPE);
                     al = SSL_AD_UNEXPECTED_MESSAGE;
                     goto f_err;
@@ -442,6 +445,36 @@ int ssl3_get_record(SSL *s)
              && (EVP_CIPHER_flags(EVP_CIPHER_CTX_cipher(s->enc_read_ctx))
                  & EVP_CIPH_FLAG_PIPELINE)
              && ssl3_record_app_data_waiting(s));
+
+    if (num_recs == 1
+            && thisrr->type == SSL3_RT_CHANGE_CIPHER_SPEC
+            && SSL_IS_TLS13(s)
+            && SSL_IS_FIRST_HANDSHAKE(s)) {
+        /*
+         * CCS messages must be exactly 1 byte long, containing the value 0x01
+         */
+        if (thisrr->length != 1 || thisrr->data[0] != 0x01) {
+            al = SSL_AD_ILLEGAL_PARAMETER;
+            SSLerr(SSL_F_SSL3_GET_RECORD, SSL_R_INVALID_CCS_MESSAGE);
+            goto f_err;
+        }
+        /*
+         * CCS messages are ignored in TLSv1.3. We treat it like an empty
+         * handshake record
+         */
+        thisrr->type = SSL3_RT_HANDSHAKE;
+        RECORD_LAYER_inc_empty_record_count(&s->rlayer);
+        if (RECORD_LAYER_get_empty_record_count(&s->rlayer)
+            > MAX_EMPTY_RECORDS) {
+            al = SSL_AD_UNEXPECTED_MESSAGE;
+            SSLerr(SSL_F_SSL3_GET_RECORD, SSL_R_UNEXPECTED_CCS_MESSAGE);
+            goto f_err;
+        }
+        thisrr->read = 1;
+        RECORD_LAYER_set_numrpipes(&s->rlayer, 1);
+
+        return 1;
+    }
 
     /*
      * If in encrypt-then-mac mode calculate mac from encrypted record. All
@@ -657,7 +690,7 @@ int ssl3_get_record(SSL *s)
             if (thisrr->type != SSL3_RT_APPLICATION_DATA
                     && thisrr->type != SSL3_RT_ALERT
                     && thisrr->type != SSL3_RT_HANDSHAKE) {
-                al = SSL_AD_UNEXPECTED_MESSAGE;
+                al = SSL_AD_ILLEGAL_PARAMETER;
                 SSLerr(SSL_F_SSL3_GET_RECORD, SSL_R_BAD_RECORD_TYPE);
                 goto f_err;
             }
