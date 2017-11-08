@@ -22,7 +22,7 @@
 #include <openssl/bn.h>
 #include <openssl/engine.h>
 
-static MSG_PROCESS_RETURN tls_process_hello_retry_request(SSL *s, PACKET *pkt);
+static MSG_PROCESS_RETURN tls_process_as_hello_retry_request(SSL *s, PACKET *pkt);
 static MSG_PROCESS_RETURN tls_process_encrypted_extensions(SSL *s, PACKET *pkt);
 
 static ossl_inline int cert_req_allowed(SSL *s);
@@ -206,11 +206,6 @@ int ossl_statem_client_read_transition(SSL *s, int mt)
                 st->hand_state = DTLS_ST_CR_HELLO_VERIFY_REQUEST;
                 return 1;
             }
-        } else {
-            if (mt == SSL3_MT_HELLO_RETRY_REQUEST) {
-                st->hand_state = TLS_ST_CR_HELLO_RETRY_REQUEST;
-                return 1;
-            }
         }
         break;
 
@@ -222,10 +217,6 @@ int ossl_statem_client_read_transition(SSL *s, int mt)
          */
         if (mt == SSL3_MT_SERVER_HELLO) {
             st->hand_state = TLS_ST_CR_SRVR_HELLO;
-            return 1;
-        }
-        if (mt == SSL3_MT_HELLO_RETRY_REQUEST) {
-            st->hand_state = TLS_ST_CR_HELLO_RETRY_REQUEST;
             return 1;
         }
         break;
@@ -499,7 +490,8 @@ WRITE_TRAN ossl_statem_client_write_transition(SSL *s)
          */
         return WRITE_TRAN_FINISHED;
 
-    case TLS_ST_CR_HELLO_RETRY_REQUEST:
+    case TLS_ST_CR_SRVR_HELLO:
+        /* We only get here in TLSv1.3 */
         st->hand_state = TLS_ST_CW_CLNT_HELLO;
         return WRITE_TRAN_CONTINUE;
 
@@ -887,9 +879,6 @@ size_t ossl_statem_client_max_message_size(SSL *s)
     case DTLS_ST_CR_HELLO_VERIFY_REQUEST:
         return HELLO_VERIFY_REQUEST_MAX_LENGTH;
 
-    case TLS_ST_CR_HELLO_RETRY_REQUEST:
-        return HELLO_RETRY_REQUEST_MAX_LENGTH;
-
     case TLS_ST_CR_CERT:
         return s->max_cert_list;
 
@@ -949,9 +938,6 @@ MSG_PROCESS_RETURN ossl_statem_client_process_message(SSL *s, PACKET *pkt)
 
     case DTLS_ST_CR_HELLO_VERIFY_REQUEST:
         return dtls_process_hello_verify(s, pkt);
-
-    case TLS_ST_CR_HELLO_RETRY_REQUEST:
-        return tls_process_hello_retry_request(s, pkt);
 
     case TLS_ST_CR_CERT:
         return tls_process_server_certificate(s, pkt);
@@ -1303,7 +1289,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
     PACKET session_id, extpkt;
     size_t session_id_len;
     const unsigned char *cipherchars;
-    int al = SSL_AD_INTERNAL_ERROR;
+    int al = SSL_AD_INTERNAL_ERROR, hrr = 0;
     unsigned int compression;
     unsigned int sversion;
     unsigned int context;
@@ -1320,10 +1306,22 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
     }
 
     /* load the server random */
-    if (!PACKET_copy_bytes(pkt, s->s3->server_random, SSL3_RANDOM_SIZE)) {
-        al = SSL_AD_DECODE_ERROR;
-        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
-        goto f_err;
+    if (s->version == TLS1_3_VERSION
+            && sversion == TLS1_2_VERSION
+            && PACKET_remaining(pkt) >= SSL3_RANDOM_SIZE
+            && memcmp(hrrrandom, PACKET_data(pkt), SSL3_RANDOM_SIZE) == 0) {
+        s->hello_retry_request = hrr = 1;
+        if (!PACKET_forward(pkt, SSL3_RANDOM_SIZE)) {
+            al = SSL_AD_DECODE_ERROR;
+            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
+            goto f_err;
+        }
+    } else {
+        if (!PACKET_copy_bytes(pkt, s->s3->server_random, SSL3_RANDOM_SIZE)) {
+            al = SSL_AD_DECODE_ERROR;
+            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_LENGTH_MISMATCH);
+            goto f_err;
+        }
     }
 
     /* Get the session-id. */
@@ -1354,7 +1352,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
     }
 
     /* TLS extensions */
-    if (PACKET_remaining(pkt) == 0) {
+    if (PACKET_remaining(pkt) == 0 && !hrr) {
         PACKET_null_init(&extpkt);
     } else if (!PACKET_as_length_prefixed_2(pkt, &extpkt)
                || PACKET_remaining(pkt) != 0) {
@@ -1363,17 +1361,45 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
         goto f_err;
     }
 
-    if (!tls_collect_extensions(s, &extpkt,
-                                SSL_EXT_TLS1_2_SERVER_HELLO
-                                | SSL_EXT_TLS1_3_SERVER_HELLO,
-                                &extensions,
-                                &al, NULL, 1))
-        goto f_err;
+    if (!hrr) {
+        if (!tls_collect_extensions(s, &extpkt,
+                                    SSL_EXT_TLS1_2_SERVER_HELLO
+                                    | SSL_EXT_TLS1_3_SERVER_HELLO,
+                                    &extensions,
+                                    &al, NULL, 1))
+            goto f_err;
 
-    protverr = ssl_choose_client_version(s, sversion, extensions, &al);
-    if (protverr != 0) {
-        SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, protverr);
-        goto f_err;
+        protverr = ssl_choose_client_version(s, sversion, extensions, &al);
+        if (protverr != 0) {
+            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, protverr);
+            goto f_err;
+        }
+    }
+
+    if (SSL_IS_TLS13(s) || hrr) {
+        if (compression != 0) {
+            al = SSL_AD_ILLEGAL_PARAMETER;
+            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO,
+                   SSL_R_INVALID_COMPRESSION_ALGORITHM);
+            goto f_err;
+        }
+
+        if (session_id_len != s->tmp_session_id_len
+                || memcmp(PACKET_data(&session_id), s->tmp_session_id,
+                          session_id_len) != 0) {
+            al = SSL_AD_ILLEGAL_PARAMETER;
+            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_INVALID_SESSION_ID);
+            goto f_err;
+        }
+    }
+
+    if (hrr) {
+        if (!set_client_ciphersuite(s, cipherchars)) {
+            al = SSL_AD_ILLEGAL_PARAMETER;
+            goto f_err;
+        }
+
+        return tls_process_as_hello_retry_request(s, &extpkt);
     }
 
     /*
@@ -1399,21 +1425,6 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
             al = SSL_AD_UNEXPECTED_MESSAGE;
             SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO,
                    SSL_R_NOT_ON_RECORD_BOUNDARY);
-            goto f_err;
-        }
-
-        if (compression != 0) {
-            al = SSL_AD_ILLEGAL_PARAMETER;
-            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO,
-                   SSL_R_INVALID_COMPRESSION_ALGORITHM);
-            goto f_err;
-        }
-
-        if (session_id_len != s->tmp_session_id_len
-                || memcmp(PACKET_data(&session_id), s->tmp_session_id,
-                          session_id_len) != 0) {
-            al = SSL_AD_ILLEGAL_PARAMETER;
-            SSLerr(SSL_F_TLS_PROCESS_SERVER_HELLO, SSL_R_INVALID_SESSION_ID);
             goto f_err;
         }
 
@@ -1621,28 +1632,11 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL *s, PACKET *pkt)
     return MSG_PROCESS_ERROR;
 }
 
-static MSG_PROCESS_RETURN tls_process_hello_retry_request(SSL *s, PACKET *pkt)
+static MSG_PROCESS_RETURN tls_process_as_hello_retry_request(SSL *s,
+                                                             PACKET *extpkt)
 {
-    unsigned int sversion;
-    const unsigned char *cipherchars;
     RAW_EXTENSION *extensions = NULL;
     int al;
-    PACKET extpkt;
-
-    if (!PACKET_get_net_2(pkt, &sversion)) {
-        al = SSL_AD_DECODE_ERROR;
-        SSLerr(SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST, SSL_R_LENGTH_MISMATCH);
-        goto f_err;
-    }
-
-    /* TODO(TLS1.3): Remove the TLS1_3_VERSION_DRAFT clause before release */
-    if (sversion != TLS1_3_VERSION && sversion != TLS1_3_VERSION_DRAFT) {
-        SSLerr(SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST, SSL_R_WRONG_SSL_VERSION);
-        al = SSL_AD_PROTOCOL_VERSION;
-        goto f_err;
-    }
-
-    s->hello_retry_request = 1;
 
     /*
      * If we were sending early_data then the enc_write_ctx is now invalid and
@@ -1651,28 +1645,7 @@ static MSG_PROCESS_RETURN tls_process_hello_retry_request(SSL *s, PACKET *pkt)
     EVP_CIPHER_CTX_free(s->enc_write_ctx);
     s->enc_write_ctx = NULL;
 
-    if (!PACKET_get_bytes(pkt, &cipherchars, TLS_CIPHER_LEN)) {
-        SSLerr(SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST, SSL_R_LENGTH_MISMATCH);
-        al = SSL_AD_DECODE_ERROR;
-        goto f_err;
-    }
-
-    if (!set_client_ciphersuite(s, cipherchars)) {
-        al = SSL_AD_ILLEGAL_PARAMETER;
-        goto f_err;
-    }
-
-    if (!PACKET_as_length_prefixed_2(pkt, &extpkt)
-               /* Must have a non-empty extensions block */
-            || PACKET_remaining(&extpkt) == 0
-               /* Must be no trailing data after extensions */
-            || PACKET_remaining(pkt) != 0) {
-        al = SSL_AD_DECODE_ERROR;
-        SSLerr(SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST, SSL_R_BAD_LENGTH);
-        goto f_err;
-    }
-
-    if (!tls_collect_extensions(s, &extpkt, SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST,
+    if (!tls_collect_extensions(s, extpkt, SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST,
                                 &extensions, &al, NULL, 1)
             || !tls_parse_all_extensions(s, SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST,
                                          extensions, NULL, 0, &al, 1))
@@ -1691,7 +1664,7 @@ static MSG_PROCESS_RETURN tls_process_hello_retry_request(SSL *s, PACKET *pkt)
          * ClientHello will not change
          */
         al = SSL_AD_ILLEGAL_PARAMETER;
-        SSLerr(SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST,
+        SSLerr(SSL_F_TLS_PROCESS_AS_HELLO_RETRY_REQUEST,
                SSL_R_NO_CHANGE_FOLLOWING_HRR);
         goto f_err;
     }
@@ -1714,7 +1687,7 @@ static MSG_PROCESS_RETURN tls_process_hello_retry_request(SSL *s, PACKET *pkt)
     if (!ssl3_finish_mac(s, (unsigned char *)s->init_buf->data,
                                 s->init_num + SSL3_HM_HEADER_LENGTH)) {
         al = SSL_AD_INTERNAL_ERROR;
-        SSLerr(SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST, ERR_R_INTERNAL_ERROR);
+        SSLerr(SSL_F_TLS_PROCESS_AS_HELLO_RETRY_REQUEST, ERR_R_INTERNAL_ERROR);
         goto f_err;
     }
 

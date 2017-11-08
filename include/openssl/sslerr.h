@@ -324,6 +324,7 @@ int ERR_load_SSL_strings(void);
 # define SSL_F_TLS_POST_PROCESS_CLIENT_HELLO              378
 # define SSL_F_TLS_POST_PROCESS_CLIENT_KEY_EXCHANGE       384
 # define SSL_F_TLS_PREPARE_CLIENT_CERTIFICATE             360
+# define SSL_F_TLS_PROCESS_AS_HELLO_RETRY_REQUEST         550
 # define SSL_F_TLS_PROCESS_CERTIFICATE_REQUEST            361
 # define SSL_F_TLS_PROCESS_CERT_STATUS                    362
 # define SSL_F_TLS_PROCESS_CERT_STATUS_BODY               495
@@ -342,7 +343,6 @@ int ERR_load_SSL_strings(void);
 # define SSL_F_TLS_PROCESS_END_OF_EARLY_DATA              537
 # define SSL_F_TLS_PROCESS_FINISHED                       364
 # define SSL_F_TLS_PROCESS_HELLO_REQ                      507
-# define SSL_F_TLS_PROCESS_HELLO_RETRY_REQUEST            511
 # define SSL_F_TLS_PROCESS_INITIAL_SERVER_FLIGHT          442
 # define SSL_F_TLS_PROCESS_KEY_EXCHANGE                   365
 # define SSL_F_TLS_PROCESS_KEY_UPDATE                     518
