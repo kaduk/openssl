@@ -600,6 +600,17 @@ EXT_RETURN tls_construct_ctos_key_share(SSL *s, WPACKET *pkt,
     const uint16_t *pgroups = NULL;
     uint16_t curve_id = 0;
 
+    if ((context & SSL_EXT_CLIENT_HELLO) != 0 && !s->hello_retry_request) {
+	if (!WPACKET_put_bytes_u16(pkt, TLSEXT_TYPE_key_share)
+               /* Extension data sub-packet */
+            || !WPACKET_start_sub_packet_u16(pkt)
+               /* KeyShare list sub-packet */
+            || !WPACKET_start_sub_packet_u16(pkt)
+            || !WPACKET_close(pkt) || !WPACKET_close(pkt))
+		return EXT_RETURN_NOT_SENT;
+        return EXT_RETURN_SENT;
+    }
+
     /* key_share extension */
     if (!WPACKET_put_bytes_u16(pkt, TLSEXT_TYPE_key_share)
                /* Extension data sub-packet */
