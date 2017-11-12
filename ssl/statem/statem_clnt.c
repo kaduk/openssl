@@ -185,6 +185,7 @@ int ossl_statem_client_read_transition(SSL *s, int mt)
      * Note that after writing the first ClientHello we don't know what version
      * we are going to negotiate yet, so we don't take this branch until later.
      */
+fprintf(stderr, "client read transition from state %u to mt %i\n", st->hand_state, mt);
     if (SSL_IS_TLS13(s)) {
         if (!ossl_statem_client13_read_transition(s, mt))
             goto err;
@@ -207,6 +208,10 @@ int ossl_statem_client_read_transition(SSL *s, int mt)
                 return 1;
             }
         }
+	if (mt == SSL3_MT_CHANGE_CIPHER_SPEC) {
+	    st->hand_state = TLS_ST_CR_CHANGE;
+	    return 1;
+	}
         break;
 
     case TLS_ST_EARLY_DATA:
@@ -338,6 +343,10 @@ int ossl_statem_client_read_transition(SSL *s, int mt)
         break;
 
     case TLS_ST_CR_CHANGE:
+        if (mt == SSL3_MT_SERVER_HELLO) {
+            st->hand_state = TLS_ST_CR_SRVR_HELLO;
+            return 1;
+        }
         if (mt == SSL3_MT_FINISHED) {
             st->hand_state = TLS_ST_CR_FINISHED;
             return 1;

@@ -21,6 +21,9 @@ int ssl3_do_change_cipher_spec(SSL *s)
     else
         i = SSL3_CHANGE_CIPHER_CLIENT_READ;
 
+    /* Not actually changing cipher state! */
+    if (s->hello_retry_request)
+	return 1;
     if (s->s3->tmp.key_block == NULL) {
         if (s->session == NULL || s->session->master_key_length == 0) {
             /* might happen if dtls1_read_bytes() calls this */

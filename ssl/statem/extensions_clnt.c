@@ -1540,11 +1540,13 @@ int tls_parse_stoc_key_share(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
     EVP_PKEY *ckey = s->s3->tmp.pkey, *skey = NULL;
 
     /* Sanity check */
+#if 0
     if (ckey == NULL || s->s3->peer_tmp != NULL) {
         *al = SSL_AD_INTERNAL_ERROR;
         SSLerr(SSL_F_TLS_PARSE_STOC_KEY_SHARE, ERR_R_INTERNAL_ERROR);
         return 0;
     }
+#endif
 
     if (!PACKET_get_net_2(pkt, &group_id)) {
         *al = SSL_AD_DECODE_ERROR;
