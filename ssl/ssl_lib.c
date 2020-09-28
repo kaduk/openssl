@@ -2269,8 +2269,10 @@ int SSL_key_update(SSL *s, int updatetype)
         return 0;
     }
 
-    ossl_statem_set_in_init(s, 1);
     s->key_update = updatetype;
+    if (!RECORD_LAYER_write_pending(&s->rlayer))
+        ossl_statem_set_in_init(s, 1);
+
     return 1;
 }
 
