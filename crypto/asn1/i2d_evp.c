@@ -102,9 +102,12 @@ int i2d_PrivateKey(const EVP_PKEY *a, unsigned char **pp)
 int i2d_PublicKey(const EVP_PKEY *a, unsigned char **pp)
 {
     if (evp_pkey_is_provided(a)) {
-        const char *output_structures[] = { "type-specific", NULL };
+        const char *generic[] = { "type-specific", NULL };
+        const char *ec[] = { "ec", NULL };
+        const char **p;
+        p = a->type == EVP_PKEY_EC ? ec : generic;
 
-        return i2d_provided(a, EVP_PKEY_PUBLIC_KEY, output_structures, pp);
+        return i2d_provided(a, EVP_PKEY_PUBLIC_KEY, p, pp);
     }
     switch (EVP_PKEY_id(a)) {
     case EVP_PKEY_RSA:
