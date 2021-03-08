@@ -107,10 +107,7 @@ static int pkey_hkdf_ctrl(EVP_PKEY_CTX *ctx, int type, int p1, void *p2)
         if (kctx->key != NULL)
             OPENSSL_clear_free(kctx->key, kctx->key_len);
 
-        if (p1 == 0)
-            kctx->key = OPENSSL_zalloc(1);
-        else
-            kctx->key = OPENSSL_memdup(p2, p1);
+        kctx->key = OPENSSL_memdup(p2, p1);
         if (kctx->key == NULL)
             return 0;
 
