@@ -4704,6 +4704,9 @@ static int set_ssl_groups(SSL *serverssl, SSL *clientssl, int clientmulti,
  * handshake itself, but for TLS 1.2 resumption handshakes the value will
  * be cached in the session from the original handshake, regardless of what
  * was offered in the resumption ClientHello.
+ * For TLS 1.3 cases we also perform a third resumption, using the
+ * psk_ke key-exchange mode, so the negotiated group will be the
+ * one from the initial handshake.
  *
  * Using E for the number of EC groups and F for the number of FF groups:
  * E tests of ECDHE with TLS 1.3, client sends only one group
@@ -4858,7 +4861,49 @@ static int test_negotiated_group(int idx)
             || !TEST_uint_eq(SSL_get_negotiated_group(serverssl), expectednid))
         goto end;
 
+    if (!istls13) {
+        testresult = 1;
+        goto end;
+    }
+
+    SSL_shutdown(clientssl);
+    SSL_shutdown(serverssl);
+    SSL_free(serverssl);
+    SSL_free(clientssl);
+    serverssl = clientssl = NULL;
+
+    /*-
+     * Third resumption attempt (TLS 1.3-only)
+     * The party that picks one group changes it, which we effectuate by
+     * changing 'idx' and updating what we expect.  But since the actual
+     * return value will be from the initial session, the expected NID
+     * will just be 'kexch_alg'.
+     */
+    expectednid = kexch_alg;
+    if (idx == 0)
+        idx = 1;
+    else
+        idx--;
+    if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl,
+                                             NULL, NULL))
+            || !TEST_true(SSL_set_session(clientssl, origsess))
+            || !TEST_true(set_ssl_groups(serverssl, clientssl, clientmulti,
+                                         isecdhe, idx))
+            || !TEST_true(SSL_set_options(clientssl, SSL_OP_ALLOW_NO_DHE_KEX))
+            || !TEST_true(SSL_set_options(serverssl, SSL_OP_ALLOW_NO_DHE_KEX)))
+        goto end;
+
+    if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE))
+            || !TEST_true(SSL_session_reused(clientssl)))
+        goto end;
+
+    /* Check that we get what we expected */
+    if (!TEST_uint_eq(SSL_get_negotiated_group(clientssl), expectednid)
+            || !TEST_uint_eq(SSL_get_negotiated_group(serverssl), expectednid))
+        goto end;
+
     testresult = 1;
+
  end:
     SSL_free(serverssl);
     SSL_free(clientssl);
